@@ -85,6 +85,101 @@ func TestMergePair(t *testing.T) {
 	}
 }
 
+// replayMerges applies merges to ids in training order: merge i creates ID
+// 256 + i wherever its pair appears at that point.
+func replayMerges(ids []int, merges []Pair) []int {
+	for i, p := range merges {
+		ids = mergePair(ids, p, firstMergeID+i)
+	}
+	return ids
+}
+
+func TestTrain(t *testing.T) {
+	sentence := "to the top of the tree"
+	tests := []struct {
+		name      string
+		text      string
+		numMerges int
+		want      []Pair
+		wantIDs   []int // the training text's IDs after all merges
+	}{
+		{
+			name:      "stage example",
+			text:      "aaabdaaabac",
+			numMerges: 3,
+			want:      []Pair{{97, 97}, {256, 97}, {257, 98}},
+			wantIDs:   []int{258, 100, 258, 97, 99},
+		},
+		{
+			// Rounds 4-6 each find only pairs that appear once, so the first wins.
+			name:      "keeps going on pairs that appear once",
+			text:      "aaabdaaabac",
+			numMerges: 6,
+			want:      []Pair{{97, 97}, {256, 97}, {257, 98}, {258, 100}, {259, 258}, {260, 97}},
+			wantIDs:   []int{261, 99},
+		},
+		{
+			// Merge 2 is a tie between (256, 104), (104, 101), and (101, 256);
+			// merge 4 joins "␠the" to the "␠t" of the next word.
+			name:      "progress sentence",
+			text:      sentence,
+			numMerges: 5,
+			want:      []Pair{{32, 116}, {256, 104}, {257, 101}, {258, 256}, {116, 111}},
+			wantIDs:   []int{260, 259, 111, 112, 32, 111, 102, 259, 114, 101, 101},
+		},
+		{
+			name:      "spaces and newlines are ordinary bytes",
+			text:      "ab ab\nab ab\n",
+			numMerges: 2,
+			want:      []Pair{{97, 98}, {256, 32}},
+			wantIDs:   []int{257, 256, 10, 257, 256, 10},
+		},
+		{
+			name:      "zero merges",
+			text:      "aaabdaaabac",
+			numMerges: 0,
+			want:      []Pair{},
+			wantIDs:   bytesToIDs([]byte("aaabdaaabac")),
+		},
+		{
+			name:      "stops when one token is left",
+			text:      "abc",
+			numMerges: 10,
+			want:      []Pair{{97, 98}, {256, 99}},
+			wantIDs:   []int{257},
+		},
+		{
+			name:      "empty text",
+			text:      "",
+			numMerges: 3,
+			want:      []Pair{},
+			wantIDs:   []int{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := train([]byte(tt.text), tt.numMerges)
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("train(%q, %d) = %v, want %v", tt.text, tt.numMerges, got, tt.want)
+			}
+			ids := replayMerges(bytesToIDs([]byte(tt.text)), got)
+			if !slices.Equal(ids, tt.wantIDs) {
+				t.Errorf("replaying the merges gives %v, want %v", ids, tt.wantIDs)
+			}
+		})
+	}
+}
+
+func TestTrainProgressSentenceTokenCount(t *testing.T) {
+	text := []byte("to the top of the tree")
+	if len(text) != 22 {
+		t.Fatalf("sentence has %d bytes, want 22", len(text))
+	}
+	if n := len(replayMerges(bytesToIDs(text), train(text, 5))); n != 11 {
+		t.Errorf("after 5 merges the sentence is %d tokens, want 11", n)
+	}
+}
+
 func TestMergePairUsesGivenID(t *testing.T) {
 	got := mergePair([]int{256, 97, 98}, Pair{256, 97}, 257)
 	if want := []int{257, 98}; !slices.Equal(got, want) {

@@ -60,3 +60,21 @@ func mergePair(ids []int, pair Pair, newID int) []int {
 	}
 	return merged
 }
+
+// train learns up to numMerges merges from data with byte-pair encoding.
+// Each round merges the most frequent pair in the current IDs into the next
+// new ID: the first merge creates 256, the second 257, and so on. Training
+// stops early only if the text shrinks to a single token.
+func train(data []byte, numMerges int) []Pair {
+	ids := bytesToIDs(data)
+	merges := make([]Pair, 0, min(numMerges, len(ids)))
+	for len(merges) < numMerges {
+		pair, ok := mostFrequentPair(ids)
+		if !ok {
+			break
+		}
+		ids = mergePair(ids, pair, firstMergeID+len(merges))
+		merges = append(merges, pair)
+	}
+	return merges
+}

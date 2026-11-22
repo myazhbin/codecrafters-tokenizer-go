@@ -135,6 +135,28 @@ func TestMergeCommand(t *testing.T) {
 	}
 }
 
+func TestTrainCommand(t *testing.T) {
+	corpus := writeTempFile(t, "corpus.txt", "aaabdaaabac")
+	got := runCLI(t, "train", corpus, "--num-merges", "3")
+	want := "[\n  [97, 97],\n  [256, 97],\n  [257, 98]\n]\n"
+	if got != want {
+		t.Errorf("train printed %q, want %q", got, want)
+	}
+
+	// The output must parse as a JSON array of pairs.
+	var pairs [][]int
+	if err := json.Unmarshal([]byte(got), &pairs); err != nil {
+		t.Fatalf("output is not JSON: %v", err)
+	}
+	if len(pairs) != 3 {
+		t.Errorf("got %d pairs, want 3", len(pairs))
+	}
+
+	if got := runCLI(t, "train", corpus, "--num-merges", "0"); got != "[]\n" {
+		t.Errorf("train with 0 merges printed %q, want %q", got, "[]\n")
+	}
+}
+
 func TestParsePair(t *testing.T) {
 	for _, tt := range []struct {
 		in   string
@@ -172,6 +194,9 @@ func TestRunErrors(t *testing.T) {
 		{"top-pair with non-integer IDs", []string{"top-pair", writeTempFile(t, "ids.json", `["a", "b"]`)}, "parsing"},
 		{"merge without --pair", []string{"merge", writeTempFile(t, "ids.json", "[1, 2]")}, "missing required flag --pair"},
 		{"merge with a bad --pair", []string{"merge", writeTempFile(t, "ids.json", "[1, 2]"), "--pair", "1"}, "two integers"},
+		{"train without --num-merges", []string{"train", writeTempFile(t, "corpus.txt", "abc")}, "missing required flag --num-merges"},
+		{"train with a negative count", []string{"train", writeTempFile(t, "corpus.txt", "abc"), "--num-merges", "-1"}, "non-negative integer"},
+		{"train with a non-number", []string{"train", writeTempFile(t, "corpus.txt", "abc"), "--num-merges", "x"}, "non-negative integer"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

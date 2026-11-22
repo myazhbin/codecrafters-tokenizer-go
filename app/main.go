@@ -36,6 +36,8 @@ func run(args []string, w io.Writer) error {
 		return runTopPair(rest, w)
 	case "merge":
 		return runMerge(rest, w)
+	case "train":
+		return runTrain(rest, w)
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
@@ -91,6 +93,28 @@ func runMerge(args []string, w io.Writer) error {
 		return err
 	}
 	return writeLine(w, formatIDs(mergePair(ids, pair, firstMergeID)))
+}
+
+// runTrain learns --num-merges merges from a text file and prints the merged
+// pairs in the order they were learned.
+func runTrain(args []string, w io.Writer) error {
+	cmd, err := parseArgs(args, "num-merges")
+	if err != nil {
+		return err
+	}
+	numFlag, err := cmd.required("num-merges")
+	if err != nil {
+		return err
+	}
+	numMerges, err := strconv.Atoi(numFlag)
+	if err != nil || numMerges < 0 {
+		return fmt.Errorf("--num-merges %q must be a non-negative integer", numFlag)
+	}
+	data, err := os.ReadFile(cmd.file)
+	if err != nil {
+		return err
+	}
+	return writeLine(w, formatPairs(train(data, numMerges)))
 }
 
 // parsePair parses two integers separated by a comma, like "1,2".
@@ -190,6 +214,30 @@ func formatIDs(ids []int) string {
 // formatPair renders p as a JSON array, like [1, 2].
 func formatPair(p Pair) string {
 	return formatIDs([]int{p.First, p.Second})
+}
+
+// formatPairs renders pairs as a JSON array with one pair per line:
+//
+//	[
+//	  [97, 97],
+//	  [256, 97]
+//	]
+func formatPairs(pairs []Pair) string {
+	if len(pairs) == 0 {
+		return "[]"
+	}
+	var sb strings.Builder
+	sb.WriteString("[\n")
+	for i, p := range pairs {
+		sb.WriteString("  ")
+		sb.WriteString(formatPair(p))
+		if i < len(pairs)-1 {
+			sb.WriteByte(',')
+		}
+		sb.WriteByte('\n')
+	}
+	sb.WriteByte(']')
+	return sb.String()
 }
 
 func writeLine(w io.Writer, s string) error {
