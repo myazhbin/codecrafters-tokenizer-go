@@ -38,6 +38,8 @@ func run(args []string, w io.Writer) error {
 		return runMerge(rest, w)
 	case "train":
 		return runTrain(rest, w)
+	case "encode":
+		return runEncode(rest, w)
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
@@ -117,6 +119,27 @@ func runTrain(args []string, w io.Writer) error {
 	return writeLine(w, formatPairs(train(data, numMerges)))
 }
 
+// runEncode converts a text file to token IDs with the merges in --merges.
+func runEncode(args []string, w io.Writer) error {
+	cmd, err := parseArgs(args, "merges")
+	if err != nil {
+		return err
+	}
+	mergesPath, err := cmd.required("merges")
+	if err != nil {
+		return err
+	}
+	merges, err := readMerges(mergesPath)
+	if err != nil {
+		return err
+	}
+	text, err := os.ReadFile(cmd.file)
+	if err != nil {
+		return err
+	}
+	return writeLine(w, formatIDs(newTokenizer(merges).encode(text)))
+}
+
 // parsePair parses two integers separated by a comma, like "1,2".
 func parsePair(s string) (Pair, error) {
 	first, second, found := strings.Cut(s, ",")
@@ -137,6 +160,23 @@ func readIDs(path string) ([]int, error) {
 		return nil, err
 	}
 	return ids, nil
+}
+
+// readMerges parses a JSON array of pairs in the format train prints, like
+// [[97, 97], [256, 97]].
+func readMerges(path string) ([]Pair, error) {
+	var raw [][]int
+	if err := readJSON(path, &raw); err != nil {
+		return nil, err
+	}
+	merges := make([]Pair, len(raw))
+	for i, p := range raw {
+		if len(p) != 2 {
+			return nil, fmt.Errorf("%s: merge %d has %d IDs, want 2", path, i, len(p))
+		}
+		merges[i] = Pair{p[0], p[1]}
+	}
+	return merges, nil
 }
 
 // readJSON parses the JSON file at path into v.

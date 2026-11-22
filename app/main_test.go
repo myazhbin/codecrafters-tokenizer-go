@@ -157,6 +157,43 @@ func TestTrainCommand(t *testing.T) {
 	}
 }
 
+func TestEncodeCommand(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		merges string
+		want   string
+	}{
+		{"stage example", "aaab", "[[97, 97], [256, 97], [257, 98]]", "[258]\n"},
+		{"training text", "aaabdaaabac", "[[97, 97], [256, 97], [257, 98]]", "[258, 100, 258, 97, 99]\n"},
+		{"competing merges", "ababab", "[[98, 97], [97, 98]]", "[97, 256, 256, 98]\n"},
+		{"empty file", "", "[[97, 97]]", "[]\n"},
+		{"empty merge list", "hi", "[]", "[104, 105]\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text := writeTempFile(t, "text.txt", tt.text)
+			merges := writeTempFile(t, "merges.json", tt.merges)
+			got := runCLI(t, "encode", text, "--merges", merges)
+			if got != tt.want {
+				t.Errorf("encode %q printed %q, want %q", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTrainOutputWorksAsMergesFile(t *testing.T) {
+	corpus := "to the top of the tree"
+	corpusPath := writeTempFile(t, "corpus.txt", corpus)
+	trained := runCLI(t, "train", corpusPath, "--num-merges", "5")
+	mergesPath := writeTempFile(t, "merges.json", trained)
+
+	got := runCLI(t, "encode", corpusPath, "--merges", mergesPath)
+	if want := "[260, 259, 111, 112, 32, 111, 102, 259, 114, 101, 101]\n"; got != want {
+		t.Errorf("encode printed %q, want %q", got, want)
+	}
+}
+
 func TestParsePair(t *testing.T) {
 	for _, tt := range []struct {
 		in   string
@@ -197,6 +234,12 @@ func TestRunErrors(t *testing.T) {
 		{"train without --num-merges", []string{"train", writeTempFile(t, "corpus.txt", "abc")}, "missing required flag --num-merges"},
 		{"train with a negative count", []string{"train", writeTempFile(t, "corpus.txt", "abc"), "--num-merges", "-1"}, "non-negative integer"},
 		{"train with a non-number", []string{"train", writeTempFile(t, "corpus.txt", "abc"), "--num-merges", "x"}, "non-negative integer"},
+		{"encode without --merges", []string{"encode", writeTempFile(t, "text.txt", "abc")}, "missing required flag --merges"},
+		{
+			"encode with a malformed merge",
+			[]string{"encode", writeTempFile(t, "text.txt", "abc"), "--merges", writeTempFile(t, "merges.json", "[[97, 98, 99]]")},
+			"merge 0 has 3 IDs, want 2",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -180,6 +180,64 @@ func TestTrainProgressSentenceTokenCount(t *testing.T) {
 	}
 }
 
+func TestEncode(t *testing.T) {
+	aaabMerges := []Pair{{97, 97}, {256, 97}, {257, 98}}
+	competing := []Pair{{98, 97}, {97, 98}}
+	sentence := "to the top of the tree"
+	tests := []struct {
+		name   string
+		text   string
+		merges []Pair
+		want   []int
+	}{
+		{"stage example", "aaab", aaabMerges, []int{258}},
+		{"training text", "aaabdaaabac", aaabMerges, []int{258, 100, 258, 97, 99}},
+		// (98, 97) is less frequent than (97, 98) but has the earlier rank.
+		{"rank beats frequency", "ababab", competing, []int{97, 256, 256, 98}},
+		{"competing merges on ababa", "ababa", competing, []int{97, 256, 256}},
+		{"empty text", "", aaabMerges, []int{}},
+		{"no merges", "abc", nil, []int{97, 98, 99}},
+		{"no merge applies", "xyz", aaabMerges, []int{120, 121, 122}},
+		{"single byte", "a", aaabMerges, []int{97}},
+		{"multi-byte characters", "👋👋", []Pair{{240, 159}, {256, 145}, {257, 139}}, []int{258, 258}},
+		{
+			"progress sentence with its own merges",
+			sentence,
+			train([]byte(sentence), 5),
+			[]int{260, 259, 111, 112, 32, 111, 102, 259, 114, 101, 101},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := newTokenizer(tt.merges).encode([]byte(tt.text))
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("encode(%q) with merges %v = %v, want %v", tt.text, tt.merges, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEncodeMatchesTraining(t *testing.T) {
+	// Encoding the training text with its own merges reproduces the IDs that
+	// training ended with.
+	texts := []string{
+		"aaabdaaabac",
+		"to the top of the tree",
+		"hello hello hello world\nhello, world!\n",
+		"🙂 naïve café 🙂 naïve café",
+	}
+	for _, text := range texts {
+		for _, n := range []int{1, 3, 10, 25} {
+			merges := train([]byte(text), n)
+			want := replayMerges(bytesToIDs([]byte(text)), merges)
+			got := newTokenizer(merges).encode([]byte(text))
+			if !slices.Equal(got, want) {
+				t.Errorf("text %q, %d merges: encode = %v, training ended with %v", text, n, got, want)
+			}
+		}
+	}
+}
+
 func TestMergePairUsesGivenID(t *testing.T) {
 	got := mergePair([]int{256, 97, 98}, Pair{256, 97}, 257)
 	if want := []int{257, 98}; !slices.Equal(got, want) {

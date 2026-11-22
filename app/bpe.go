@@ -61,6 +61,64 @@ func mergePair(ids []int, pair Pair, newID int) []int {
 	return merged
 }
 
+// mergeRule says what a learned pair becomes during encoding.
+type mergeRule struct {
+	rank int // position in the merge list; lower ranks are merged first
+	id   int // ID of the merged token
+}
+
+// Tokenizer encodes bytes into token IDs by replaying learned merges.
+type Tokenizer struct {
+	byteIDs [256]int           // ID of each single-byte token
+	rules   map[Pair]mergeRule // learned pairs and what they merge into
+}
+
+// newTokenizer returns a Tokenizer for merges in the format train produces:
+// byte b has ID b, and merges[i] creates ID 256 + i.
+func newTokenizer(merges []Pair) *Tokenizer {
+	t := &Tokenizer{rules: make(map[Pair]mergeRule, len(merges))}
+	for b := range t.byteIDs {
+		t.byteIDs[b] = b
+	}
+	for i, p := range merges {
+		if _, seen := t.rules[p]; !seen { // a repeated pair keeps its earliest rank
+			t.rules[p] = mergeRule{rank: i, id: firstMergeID + i}
+		}
+	}
+	return t
+}
+
+// encode converts data to token IDs. It starts with one ID per byte, then
+// repeatedly finds the learned pair with the earliest rank that is present
+// and merges every occurrence of it, until no neighboring pair was learned.
+// Rank decides the order, not how often a pair appears in data.
+func (t *Tokenizer) encode(data []byte) []int {
+	ids := make([]int, len(data))
+	for i, b := range data {
+		ids[i] = t.byteIDs[b]
+	}
+	for len(ids) >= 2 {
+		pair, rule, found := t.earliestRankedPair(ids)
+		if !found {
+			break
+		}
+		ids = mergePair(ids, pair, rule.id)
+	}
+	return ids
+}
+
+// earliestRankedPair returns the neighboring pair in ids with the lowest
+// merge rank. found is false if no neighboring pair has a merge rule.
+func (t *Tokenizer) earliestRankedPair(ids []int) (best Pair, bestRule mergeRule, found bool) {
+	for i := 0; i+1 < len(ids); i++ {
+		p := Pair{ids[i], ids[i+1]}
+		if rule, ok := t.rules[p]; ok && (!found || rule.rank < bestRule.rank) {
+			best, bestRule, found = p, rule, true
+		}
+	}
+	return best, bestRule, found
+}
+
 // train learns up to numMerges merges from data with byte-pair encoding.
 // Each round merges the most frequent pair in the current IDs into the next
 // new ID: the first merge creates 256, the second 257, and so on. Training
