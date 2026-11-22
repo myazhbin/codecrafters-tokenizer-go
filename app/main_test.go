@@ -182,6 +182,37 @@ func TestEncodeCommand(t *testing.T) {
 	}
 }
 
+func TestEncodeCommandPretokenized(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		merges string
+		want   string
+	}{
+		{
+			"stage example",
+			"Hello world's 123!!",
+			"[[108, 108], [111, 32]]",
+			"[72, 101, 256, 111, 32, 119, 111, 114, 108, 100, 39, 115, 32, 49, 50, 51, 33, 33]\n",
+		},
+		{"contraction is case sensitive", "DON'T", "[[68, 79], [39, 84]]", "[256, 78, 39, 84]\n"},
+		// (185, 224) spans the boundary between the chunks "ह" and "िं".
+		{"Hindi", "हिंदी", "[[185, 224]]", "[224, 164, 185, 224, 164, 191, 224, 164, 130, 224, 164, 166, 224, 165, 128]\n"},
+		{"non-breaking space", "a b", "[[194, 160], [256, 98]]", "[97, 256, 98]\n"},
+		{"empty file", "", "[[97, 98]]", "[]\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text := writeTempFile(t, "text.txt", tt.text)
+			merges := writeTempFile(t, "merges.json", tt.merges)
+			got := runCLI(t, "encode", text, "--merges", merges, "--pretokenize", "gpt2")
+			if got != tt.want {
+				t.Errorf("encode %q printed %q, want %q", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTrainOutputWorksAsMergesFile(t *testing.T) {
 	corpus := "to the top of the tree"
 	corpusPath := writeTempFile(t, "corpus.txt", corpus)
@@ -282,6 +313,11 @@ func TestRunErrors(t *testing.T) {
 			"encode with a malformed merge",
 			[]string{"encode", writeTempFile(t, "text.txt", "abc"), "--merges", writeTempFile(t, "merges.json", "[[97, 98, 99]]")},
 			"merge 0 has 3 IDs, want 2",
+		},
+		{
+			"encode with an unknown pretokenizer",
+			[]string{"encode", writeTempFile(t, "text.txt", "abc"), "--merges", writeTempFile(t, "merges.json", "[]"), "--pretokenize", "gpt4"},
+			`--pretokenize "gpt4" is not supported`,
 		},
 		{"decode without --merges", []string{"decode", writeTempFile(t, "ids.json", "[97]")}, "missing required flag --merges"},
 		{

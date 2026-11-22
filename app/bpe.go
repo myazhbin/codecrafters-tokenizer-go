@@ -109,6 +109,16 @@ func (t *Tokenizer) encode(data []byte) []int {
 	return ids
 }
 
+// encodeChunks encodes each chunk on its own and joins the IDs in chunk
+// order, so no merge crosses a chunk boundary.
+func (t *Tokenizer) encodeChunks(chunks [][]byte) []int {
+	ids := []int{}
+	for _, chunk := range chunks {
+		ids = append(ids, t.encode(chunk)...)
+	}
+	return ids
+}
+
 // earliestRankedPair returns the neighboring pair in ids with the lowest
 // merge rank. found is false if no neighboring pair has a merge rule.
 func (t *Tokenizer) earliestRankedPair(ids []int) (best Pair, bestRule mergeRule, found bool) {

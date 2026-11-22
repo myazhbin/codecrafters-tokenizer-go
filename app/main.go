@@ -122,10 +122,16 @@ func runTrain(args []string, w io.Writer) error {
 }
 
 // runEncode converts a text file to token IDs with the merges in --merges.
+// With --pretokenize gpt2, it first splits the text into chunks the way
+// GPT-2 does and encodes each chunk separately.
 func runEncode(args []string, w io.Writer) error {
-	cmd, err := parseArgs(args, "merges")
+	cmd, err := parseArgs(args, "merges", "pretokenize")
 	if err != nil {
 		return err
+	}
+	pretokenize, splitText := cmd.flags["pretokenize"]
+	if splitText && pretokenize != "gpt2" {
+		return fmt.Errorf("--pretokenize %q is not supported; the only option is gpt2", pretokenize)
 	}
 	mergesPath, err := cmd.required("merges")
 	if err != nil {
@@ -139,7 +145,13 @@ func runEncode(args []string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return writeLine(w, formatIDs(newTokenizer(merges).encode(text)))
+	chunks := [][]byte{text}
+	if splitText {
+		if chunks, err = splitGPT2(text); err != nil {
+			return err
+		}
+	}
+	return writeLine(w, formatIDs(newTokenizer(merges).encodeChunks(chunks)))
 }
 
 // runDecode converts a JSON list of token IDs back into text with the merges
