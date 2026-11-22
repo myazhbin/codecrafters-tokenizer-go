@@ -194,6 +194,49 @@ func TestTrainOutputWorksAsMergesFile(t *testing.T) {
 	}
 }
 
+func TestDecodeCommand(t *testing.T) {
+	aaab := "[[97, 97], [256, 97], [257, 98]]"
+	tests := []struct {
+		name   string
+		ids    string
+		merges string
+		want   string // the decoded text, before JSON encoding
+	}{
+		{"stage example", "[258, 100]", aaab, "aaabd"},
+		{"empty", "[]", aaab, ""},
+		{"full wave emoji", "[240, 159, 145, 139]", "[]", "👋"},
+		{"half wave emoji", "[240, 159, 145]", "[]", "�"},
+		{"never-valid bytes", "[255, 255]", "[]", "��"},
+		{"emoji split across merged tokens", "[257, 139]", "[[240, 159], [256, 145]]", "👋"},
+		{"progress sentence", "[260, 259, 111, 112, 32, 111, 102, 259, 114, 101, 101]",
+			"[[32, 116], [256, 104], [257, 101], [258, 256], [116, 111]]", "to the top of the tree"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ids := writeTempFile(t, "ids.json", tt.ids)
+			merges := writeTempFile(t, "merges.json", tt.merges)
+			out := runCLI(t, "decode", ids, "--merges", merges)
+			var got string
+			if err := json.Unmarshal([]byte(out), &got); err != nil {
+				t.Fatalf("output %q is not a JSON string: %v", out, err)
+			}
+			if got != tt.want {
+				t.Errorf("decode %s printed %q, want %q", tt.ids, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeCommandEscapesJSON(t *testing.T) {
+	// The bytes of: " \ newline tab < &
+	ids := writeTempFile(t, "ids.json", "[34, 92, 10, 9, 60, 38]")
+	merges := writeTempFile(t, "merges.json", "[]")
+	got := runCLI(t, "decode", ids, "--merges", merges)
+	if want := `"\"\\\n\t<&"` + "\n"; got != want {
+		t.Errorf("decode printed %q, want %q", got, want)
+	}
+}
+
 func TestParsePair(t *testing.T) {
 	for _, tt := range []struct {
 		in   string
@@ -239,6 +282,12 @@ func TestRunErrors(t *testing.T) {
 			"encode with a malformed merge",
 			[]string{"encode", writeTempFile(t, "text.txt", "abc"), "--merges", writeTempFile(t, "merges.json", "[[97, 98, 99]]")},
 			"merge 0 has 3 IDs, want 2",
+		},
+		{"decode without --merges", []string{"decode", writeTempFile(t, "ids.json", "[97]")}, "missing required flag --merges"},
+		{
+			"decode an unknown ID",
+			[]string{"decode", writeTempFile(t, "ids.json", "[300]"), "--merges", writeTempFile(t, "merges.json", "[[97, 97]]")},
+			"unknown token ID 300",
 		},
 	}
 	for _, tt := range tests {

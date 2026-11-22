@@ -40,6 +40,8 @@ func run(args []string, w io.Writer) error {
 		return runTrain(rest, w)
 	case "encode":
 		return runEncode(rest, w)
+	case "decode":
+		return runDecode(rest, w)
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
@@ -138,6 +140,32 @@ func runEncode(args []string, w io.Writer) error {
 		return err
 	}
 	return writeLine(w, formatIDs(newTokenizer(merges).encode(text)))
+}
+
+// runDecode converts a JSON list of token IDs back into text with the merges
+// in --merges, and prints the text as a JSON string.
+func runDecode(args []string, w io.Writer) error {
+	cmd, err := parseArgs(args, "merges")
+	if err != nil {
+		return err
+	}
+	mergesPath, err := cmd.required("merges")
+	if err != nil {
+		return err
+	}
+	merges, err := readMerges(mergesPath)
+	if err != nil {
+		return err
+	}
+	ids, err := readIDs(cmd.file)
+	if err != nil {
+		return err
+	}
+	buf, err := decodeBytes(ids, merges)
+	if err != nil {
+		return err
+	}
+	return writeJSONString(w, decodeUTF8(buf))
 }
 
 // parsePair parses two integers separated by a comma, like "1,2".
@@ -278,6 +306,15 @@ func formatPairs(pairs []Pair) string {
 	}
 	sb.WriteByte(']')
 	return sb.String()
+}
+
+// writeJSONString prints s as a JSON string followed by a newline. Quotes,
+// backslashes, and control characters are escaped; other text, including
+// "<", ">", and "&", is written as is.
+func writeJSONString(w io.Writer, s string) error {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(s)
 }
 
 func writeLine(w io.Writer, s string) error {

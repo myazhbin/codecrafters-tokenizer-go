@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -233,6 +234,82 @@ func TestEncodeMatchesTraining(t *testing.T) {
 			got := newTokenizer(merges).encode([]byte(text))
 			if !slices.Equal(got, want) {
 				t.Errorf("text %q, %d merges: encode = %v, training ended with %v", text, n, got, want)
+			}
+		}
+	}
+}
+
+func TestDecodeBytes(t *testing.T) {
+	aaab := []Pair{{97, 97}, {256, 97}, {257, 98}}
+	tests := []struct {
+		name   string
+		ids    []int
+		merges []Pair
+		want   string
+	}{
+		{"stage example", []int{258, 100}, aaab, "aaabd"},
+		{"bytes only", []int{104, 105}, nil, "hi"},
+		{"no IDs", nil, aaab, ""},
+		{"character split across tokens", []int{257, 139}, []Pair{{240, 159}, {256, 145}}, "👋"},
+		{"merge that refers to a later merge", []int{256}, []Pair{{97, 257}, {98, 99}}, "abc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decodeBytes(tt.ids, tt.merges)
+			if err != nil || string(got) != tt.want {
+				t.Errorf("decodeBytes(%v) = %q, %v; want %q", tt.ids, got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeBytesErrors(t *testing.T) {
+	aaab := []Pair{{97, 97}, {256, 97}, {257, 98}}
+	tests := []struct {
+		name    string
+		ids     []int
+		merges  []Pair
+		wantErr string
+	}{
+		{"ID beyond the merges", []int{97, 259}, aaab, "unknown token ID 259"},
+		{"negative ID", []int{-1}, aaab, "unknown token ID -1"},
+		{"merge defined by itself", []int{256}, []Pair{{256, 97}}, "defined in terms of itself"},
+		{"merges defined by each other", []int{256}, []Pair{{257, 97}, {256, 98}}, "defined in terms of itself"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := decodeBytes(tt.ids, tt.merges)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("decodeBytes(%v) error = %v, want one containing %q", tt.ids, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEncodeDecodeRoundTrip(t *testing.T) {
+	texts := []string{
+		"",
+		"a",
+		"aaabdaaabac",
+		"to the top of the tree",
+		"hello hello hello world\nhello, world!\n",
+		"🙂 naïve café 🙂 naïve café",
+		"हिंदी में लिखा गया वाक्य",
+		"\x00\xff\xfe not UTF-8 \x80\xc3",
+	}
+	unseen := []byte("the tree is on top 🙂")
+	for _, text := range texts {
+		for _, n := range []int{0, 1, 5, 50} {
+			merges := train([]byte(text), n)
+			tok := newTokenizer(merges)
+			for _, data := range [][]byte{[]byte(text), unseen} {
+				got, err := decodeBytes(tok.encode(data), merges)
+				if err != nil {
+					t.Fatalf("decoding %q: %v", data, err)
+				}
+				if string(got) != string(data) {
+					t.Errorf("trained on %q with %d merges: %q round-trips to %q", text, n, data, got)
+				}
 			}
 		}
 	}

@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 // firstMergeID is the ID of the first token a merge creates. IDs 0-255 stand
 // for single bytes, so merge i (counting from 0) creates ID firstMergeID + i.
 const firstMergeID = 256
@@ -117,6 +119,43 @@ func (t *Tokenizer) earliestRankedPair(ids []int) (best Pair, bestRule mergeRule
 		}
 	}
 	return best, bestRule, found
+}
+
+// decodeBytes returns the bytes that ids stand for, joined in order, given
+// the merges that created them. ID b below 256 is the single byte b, and ID
+// 256 + i is the bytes of merges[i].First followed by those of its Second.
+func decodeBytes(ids []int, merges []Pair) ([]byte, error) {
+	var buf []byte
+	for _, id := range ids {
+		var err error
+		if buf, err = appendTokenBytes(buf, merges, id, 0); err != nil {
+			return nil, err
+		}
+	}
+	return buf, nil
+}
+
+// appendTokenBytes appends the bytes of token id to dst, expanding merges
+// recursively. depth counts the merges already being expanded above id.
+func appendTokenBytes(dst []byte, merges []Pair, id, depth int) ([]byte, error) {
+	if id >= 0 && id < firstMergeID {
+		return append(dst, byte(id)), nil
+	}
+	i := id - firstMergeID
+	if i < 0 || i >= len(merges) {
+		return nil, fmt.Errorf("unknown token ID %d: there are %d merges, so the largest ID is %d",
+			id, len(merges), firstMergeID+len(merges)-1)
+	}
+	// Expanding a token passes through each merge at most once, unless a
+	// merge is (indirectly) defined in terms of itself.
+	if depth >= len(merges) {
+		return nil, fmt.Errorf("token ID %d is defined in terms of itself", id)
+	}
+	dst, err := appendTokenBytes(dst, merges, merges[i].First, depth+1)
+	if err != nil {
+		return nil, err
+	}
+	return appendTokenBytes(dst, merges, merges[i].Second, depth+1)
 }
 
 // train learns up to numMerges merges from data with byte-pair encoding.
