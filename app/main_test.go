@@ -112,6 +112,49 @@ func TestTopPairCommand(t *testing.T) {
 	}
 }
 
+func TestMergeCommand(t *testing.T) {
+	tests := []struct {
+		name string
+		ids  string
+		pair string
+		want string
+	}{
+		{"stage example", "[1, 2, 3, 1, 2]", "1,2", "[256, 3, 256]\n"},
+		{"overlapping", "[97, 97, 97]", "97,97", "[256, 97]\n"},
+		{"pair never appears", "[1, 2, 3]", "3,1", "[1, 2, 3]\n"},
+		{"empty list", "[]", "1,2", "[]\n"},
+		{"aaabdaaabac", "[97, 97, 97, 98, 100, 97, 97, 97, 98, 97, 99]", "97,97", "[256, 97, 98, 100, 256, 97, 98, 97, 99]\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runCLI(t, "merge", writeTempFile(t, "ids.json", tt.ids), "--pair", tt.pair)
+			if got != tt.want {
+				t.Errorf("merge %s --pair %s printed %q, want %q", tt.ids, tt.pair, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParsePair(t *testing.T) {
+	for _, tt := range []struct {
+		in   string
+		want Pair
+	}{
+		{"1,2", Pair{1, 2}},
+		{"256,97", Pair{256, 97}},
+		{"32,116", Pair{32, 116}},
+	} {
+		if got, err := parsePair(tt.in); err != nil || got != tt.want {
+			t.Errorf("parsePair(%q) = %v, %v; want %v", tt.in, got, err, tt.want)
+		}
+	}
+	for _, bad := range []string{"", "1", "1,", ",2", "a,b", "1,2,3", "1;2"} {
+		if got, err := parsePair(bad); err == nil {
+			t.Errorf("parsePair(%q) = %v, want an error", bad, got)
+		}
+	}
+}
+
 func TestRunErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -127,6 +170,8 @@ func TestRunErrors(t *testing.T) {
 		{"top-pair with one ID", []string{"top-pair", writeTempFile(t, "ids.json", "[1]")}, "fewer than two IDs"},
 		{"top-pair with bad JSON", []string{"top-pair", writeTempFile(t, "ids.json", "[1, 2")}, "parsing"},
 		{"top-pair with non-integer IDs", []string{"top-pair", writeTempFile(t, "ids.json", `["a", "b"]`)}, "parsing"},
+		{"merge without --pair", []string{"merge", writeTempFile(t, "ids.json", "[1, 2]")}, "missing required flag --pair"},
+		{"merge with a bad --pair", []string{"merge", writeTempFile(t, "ids.json", "[1, 2]"), "--pair", "1"}, "two integers"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

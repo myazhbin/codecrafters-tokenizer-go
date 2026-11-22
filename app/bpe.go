@@ -1,5 +1,9 @@
 package main
 
+// firstMergeID is the ID of the first token a merge creates. IDs 0-255 stand
+// for single bytes, so merge i (counting from 0) creates ID firstMergeID + i.
+const firstMergeID = 256
+
 // Pair is two neighboring token IDs, in order.
 type Pair struct {
 	First, Second int
@@ -39,4 +43,20 @@ func mostFrequentPair(ids []int) (best Pair, ok bool) {
 		}
 	}
 	return best, true
+}
+
+// mergePair returns a copy of ids with each occurrence of pair replaced by
+// newID. It reads left to right, and matches can't overlap: merging (97, 97)
+// in [97, 97, 97] gives [newID, 97].
+func mergePair(ids []int, pair Pair, newID int) []int {
+	merged := make([]int, 0, len(ids))
+	for i := 0; i < len(ids); i++ {
+		if i+1 < len(ids) && ids[i] == pair.First && ids[i+1] == pair.Second {
+			merged = append(merged, newID)
+			i++ // the pair's second ID is consumed too
+		} else {
+			merged = append(merged, ids[i])
+		}
+	}
+	return merged
 }

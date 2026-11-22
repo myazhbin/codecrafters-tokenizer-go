@@ -34,6 +34,8 @@ func run(args []string, w io.Writer) error {
 		return runBytes(rest, w)
 	case "top-pair":
 		return runTopPair(rest, w)
+	case "merge":
+		return runMerge(rest, w)
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
@@ -67,6 +69,41 @@ func runTopPair(args []string, w io.Writer) error {
 		return fmt.Errorf("%s has fewer than two IDs, so it has no pairs", cmd.file)
 	}
 	return writeLine(w, formatPair(pair))
+}
+
+// runMerge replaces each occurrence of --pair in a JSON list of IDs with the
+// first merge ID, 256.
+func runMerge(args []string, w io.Writer) error {
+	cmd, err := parseArgs(args, "pair")
+	if err != nil {
+		return err
+	}
+	pairFlag, err := cmd.required("pair")
+	if err != nil {
+		return err
+	}
+	pair, err := parsePair(pairFlag)
+	if err != nil {
+		return err
+	}
+	ids, err := readIDs(cmd.file)
+	if err != nil {
+		return err
+	}
+	return writeLine(w, formatIDs(mergePair(ids, pair, firstMergeID)))
+}
+
+// parsePair parses two integers separated by a comma, like "1,2".
+func parsePair(s string) (Pair, error) {
+	first, second, found := strings.Cut(s, ",")
+	if found {
+		a, errA := strconv.Atoi(strings.TrimSpace(first))
+		b, errB := strconv.Atoi(strings.TrimSpace(second))
+		if errA == nil && errB == nil {
+			return Pair{a, b}, nil
+		}
+	}
+	return Pair{}, fmt.Errorf("--pair %q must be two integers separated by a comma, like 1,2", s)
 }
 
 // readIDs parses a file holding a JSON array of token IDs.
@@ -125,6 +162,15 @@ func parseArgs(args []string, allowed ...string) (commandArgs, error) {
 	}
 	cmd.file = positional[0]
 	return cmd, nil
+}
+
+// required returns the value of a flag the command can't run without.
+func (c commandArgs) required(name string) (string, error) {
+	value, ok := c.flags[name]
+	if !ok {
+		return "", fmt.Errorf("missing required flag --%s", name)
+	}
+	return value, nil
 }
 
 // formatIDs renders ids as a one-line JSON array, like [104, 105, 32].
