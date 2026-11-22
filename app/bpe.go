@@ -83,11 +83,17 @@ func newTokenizer(merges []Pair) *Tokenizer {
 		t.byteIDs[b] = b
 	}
 	for i, p := range merges {
-		if _, seen := t.rules[p]; !seen { // a repeated pair keeps its earliest rank
-			t.rules[p] = mergeRule{rank: i, id: firstMergeID + i}
-		}
+		t.addMerge(p, i, firstMergeID+i)
 	}
 	return t
+}
+
+// addMerge records that pair merges into token id with the given rank. A
+// pair that is already recorded keeps its earlier rank.
+func (t *Tokenizer) addMerge(pair Pair, rank, id int) {
+	if _, seen := t.rules[pair]; !seen {
+		t.rules[pair] = mergeRule{rank: rank, id: id}
+	}
 }
 
 // encode converts data to token IDs. It starts with one ID per byte, then

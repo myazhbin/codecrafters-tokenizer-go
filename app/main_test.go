@@ -308,7 +308,13 @@ func TestRunErrors(t *testing.T) {
 		{"train without --num-merges", []string{"train", writeTempFile(t, "corpus.txt", "abc")}, "missing required flag --num-merges"},
 		{"train with a negative count", []string{"train", writeTempFile(t, "corpus.txt", "abc"), "--num-merges", "-1"}, "non-negative integer"},
 		{"train with a non-number", []string{"train", writeTempFile(t, "corpus.txt", "abc"), "--num-merges", "x"}, "non-negative integer"},
-		{"encode without --merges", []string{"encode", writeTempFile(t, "text.txt", "abc")}, "missing required flag --merges"},
+		{"encode without --merges or --vocab", []string{"encode", writeTempFile(t, "text.txt", "abc")}, "encode needs --merges <file> or --vocab <directory>"},
+		{
+			"encode with both --merges and --vocab",
+			[]string{"encode", writeTempFile(t, "text.txt", "abc"), "--merges", writeTempFile(t, "merges.json", "[]"), "--vocab", t.TempDir()},
+			"not both",
+		},
+		{"encode with a missing vocab directory", []string{"encode", writeTempFile(t, "text.txt", "abc"), "--vocab", filepath.Join(t.TempDir(), "nope")}, "no such file"},
 		{
 			"encode with a malformed merge",
 			[]string{"encode", writeTempFile(t, "text.txt", "abc"), "--merges", writeTempFile(t, "merges.json", "[[97, 98, 99]]")},

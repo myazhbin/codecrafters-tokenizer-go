@@ -121,11 +121,13 @@ func runTrain(args []string, w io.Writer) error {
 	return writeLine(w, formatPairs(train(data, numMerges)))
 }
 
-// runEncode converts a text file to token IDs with the merges in --merges.
-// With --pretokenize gpt2, it first splits the text into chunks the way
-// GPT-2 does and encodes each chunk separately.
+// runEncode converts a text file to token IDs. The merges come from either
+// --merges, a JSON list in the format train prints, or --vocab, a directory
+// holding GPT-2's vocab.json and merges.txt. With --pretokenize gpt2, and
+// always with --vocab, the text is first split into chunks the way GPT-2
+// does, and each chunk is encoded separately.
 func runEncode(args []string, w io.Writer) error {
-	cmd, err := parseArgs(args, "merges", "pretokenize")
+	cmd, err := parseArgs(args, "merges", "pretokenize", "vocab")
 	if err != nil {
 		return err
 	}
@@ -133,14 +135,13 @@ func runEncode(args []string, w io.Writer) error {
 	if splitText && pretokenize != "gpt2" {
 		return fmt.Errorf("--pretokenize %q is not supported; the only option is gpt2", pretokenize)
 	}
-	mergesPath, err := cmd.required("merges")
+	tok, isGPT2, err := loadEncodeTokenizer(cmd)
 	if err != nil {
 		return err
 	}
-	merges, err := readMerges(mergesPath)
-	if err != nil {
-		return err
-	}
+	// GPT-2's merges were learned on GPT-2's chunks, so they always go together.
+	splitText = splitText || isGPT2
+
 	text, err := os.ReadFile(cmd.file)
 	if err != nil {
 		return err
@@ -151,7 +152,29 @@ func runEncode(args []string, w io.Writer) error {
 			return err
 		}
 	}
-	return writeLine(w, formatIDs(newTokenizer(merges).encodeChunks(chunks)))
+	return writeLine(w, formatIDs(tok.encodeChunks(chunks)))
+}
+
+// loadEncodeTokenizer loads the Tokenizer named by encode's --merges or
+// --vocab flag. isGPT2 reports whether it is GPT-2's vocabulary.
+func loadEncodeTokenizer(cmd commandArgs) (tok *Tokenizer, isGPT2 bool, err error) {
+	mergesPath, hasMerges := cmd.flags["merges"]
+	vocabDir, hasVocab := cmd.flags["vocab"]
+	switch {
+	case hasMerges && hasVocab:
+		return nil, false, errors.New("encode takes --merges or --vocab, not both")
+	case hasVocab:
+		tok, err := loadGPT2Tokenizer(vocabDir)
+		return tok, true, err
+	case hasMerges:
+		merges, err := readMerges(mergesPath)
+		if err != nil {
+			return nil, false, err
+		}
+		return newTokenizer(merges), false, nil
+	default:
+		return nil, false, errors.New("encode needs --merges <file> or --vocab <directory>")
+	}
 }
 
 // runDecode converts a JSON list of token IDs back into text with the merges
