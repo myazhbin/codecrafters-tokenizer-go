@@ -1,40 +1,106 @@
+// Command your_program.sh is a byte-pair encoding (BPE) tokenizer.
+//
+// Usage: your_program.sh <command> <file> [--flag value ...]
+//
+// Every command prints its result to stdout as JSON. Errors go to stderr.
 package main
 
 import (
-	// TODO: Uncomment the code below to pass the first stage!
-	// "encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 )
 
-// Usage: your_program.sh <command> <arg1> <arg2> ...
 func main() {
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	fmt.Fprintf(os.Stderr, "Logs from your program will appear here!\n")
-
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: your_program.sh <command> [<args>...]\n")
+	if err := run(os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
 
-	switch command := os.Args[1]; command {
+// run executes the command named by args[0] and writes its output to w.
+func run(args []string, w io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("usage: your_program.sh <command> <file> [--flag value ...]")
+	}
+	command, rest := args[0], args[1:]
+	switch command {
 	case "bytes":
-		// TODO: Uncomment the code below to pass the first stage!
-		//
-		// data, err := os.ReadFile(os.Args[2])
-		// if err != nil {
-		// 	fmt.Fprintf(os.Stderr, "Error reading file: %s\n", err)
-		// 	os.Exit(1)
-		// }
-		// ids := make([]int, len(data))
-		// for i, b := range data {
-		// 	ids[i] = int(b)
-		// }
-		// output, _ := json.Marshal(ids)
-		// fmt.Println(string(output))
-
+		return runBytes(rest, w)
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
-		os.Exit(1)
+		return fmt.Errorf("unknown command %q", command)
 	}
+}
+
+// runBytes prints a file's UTF-8 bytes. Each byte's value is its token ID.
+func runBytes(args []string, w io.Writer) error {
+	cmd, err := parseArgs(args)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(cmd.file)
+	if err != nil {
+		return err
+	}
+	return writeLine(w, formatIDs(bytesToIDs(data)))
+}
+
+// commandArgs holds a command's file argument and its flag values.
+type commandArgs struct {
+	file  string
+	flags map[string]string
+}
+
+// parseArgs reads exactly one positional file argument plus any of the
+// allowed flags, written as "--name value" or "--name=value", in any order.
+func parseArgs(args []string, allowed ...string) (commandArgs, error) {
+	cmd := commandArgs{flags: make(map[string]string)}
+	var positional []string
+	for i := 0; i < len(args); i++ {
+		name, isFlag := strings.CutPrefix(args[i], "--")
+		if !isFlag || name == "" {
+			positional = append(positional, args[i])
+			continue
+		}
+		name, value, hasValue := strings.Cut(name, "=")
+		if !slices.Contains(allowed, name) {
+			return cmd, fmt.Errorf("unknown flag --%s", name)
+		}
+		if !hasValue {
+			if i+1 == len(args) {
+				return cmd, fmt.Errorf("flag --%s needs a value", name)
+			}
+			i++
+			value = args[i]
+		}
+		cmd.flags[name] = value
+	}
+	if len(positional) != 1 {
+		return cmd, fmt.Errorf("expected one file argument, got %d", len(positional))
+	}
+	cmd.file = positional[0]
+	return cmd, nil
+}
+
+// formatIDs renders ids as a one-line JSON array, like [104, 105, 32].
+func formatIDs(ids []int) string {
+	var sb strings.Builder
+	sb.WriteByte('[')
+	for i, id := range ids {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(strconv.Itoa(id))
+	}
+	sb.WriteByte(']')
+	return sb.String()
+}
+
+func writeLine(w io.Writer, s string) error {
+	_, err := fmt.Fprintln(w, s)
+	return err
 }
