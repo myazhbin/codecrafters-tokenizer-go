@@ -6,6 +6,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +32,8 @@ func run(args []string, w io.Writer) error {
 	switch command {
 	case "bytes":
 		return runBytes(rest, w)
+	case "top-pair":
+		return runTopPair(rest, w)
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
@@ -47,6 +50,44 @@ func runBytes(args []string, w io.Writer) error {
 		return err
 	}
 	return writeLine(w, formatIDs(bytesToIDs(data)))
+}
+
+// runTopPair prints the most frequent pair of neighboring IDs in a JSON list.
+func runTopPair(args []string, w io.Writer) error {
+	cmd, err := parseArgs(args)
+	if err != nil {
+		return err
+	}
+	ids, err := readIDs(cmd.file)
+	if err != nil {
+		return err
+	}
+	pair, ok := mostFrequentPair(ids)
+	if !ok {
+		return fmt.Errorf("%s has fewer than two IDs, so it has no pairs", cmd.file)
+	}
+	return writeLine(w, formatPair(pair))
+}
+
+// readIDs parses a file holding a JSON array of token IDs.
+func readIDs(path string) ([]int, error) {
+	var ids []int
+	if err := readJSON(path, &ids); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// readJSON parses the JSON file at path into v.
+func readJSON(path string, v any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("parsing %s: %w", path, err)
+	}
+	return nil
 }
 
 // commandArgs holds a command's file argument and its flag values.
@@ -98,6 +139,11 @@ func formatIDs(ids []int) string {
 	}
 	sb.WriteByte(']')
 	return sb.String()
+}
+
+// formatPair renders p as a JSON array, like [1, 2].
+func formatPair(p Pair) string {
+	return formatIDs([]int{p.First, p.Second})
 }
 
 func writeLine(w io.Writer, s string) error {

@@ -89,6 +89,29 @@ func TestBytesCommandKeepsEveryByte(t *testing.T) {
 	}
 }
 
+func TestTopPairCommand(t *testing.T) {
+	tests := []struct {
+		name string
+		ids  string
+		want string
+	}{
+		{"stage example", "[1, 2, 3, 1, 2]", "[1, 2]\n"},
+		{"tie", "[8, 9, 1, 2]", "[8, 9]\n"},
+		{"two-way tie", "[1, 2, 3, 4, 3, 4, 1, 2]", "[1, 2]\n"},
+		{"overlapping", "[5, 6, 97, 97, 97]", "[97, 97]\n"},
+		{"aaabdaaabac", "[97, 97, 97, 98, 100, 97, 97, 97, 98, 97, 99]", "[97, 97]\n"},
+		{"compact JSON", "[300,301,300,301]", "[300, 301]\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runCLI(t, "top-pair", writeTempFile(t, "ids.json", tt.ids))
+			if got != tt.want {
+				t.Errorf("top-pair %s printed %q, want %q", tt.ids, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -101,6 +124,9 @@ func TestRunErrors(t *testing.T) {
 		{"too many file arguments", []string{"bytes", "a", "b"}, "expected one file argument"},
 		{"unknown flag", []string{"bytes", "a", "--bogus", "1"}, "unknown flag --bogus"},
 		{"file does not exist", []string{"bytes", filepath.Join(t.TempDir(), "missing.txt")}, "no such file"},
+		{"top-pair with one ID", []string{"top-pair", writeTempFile(t, "ids.json", "[1]")}, "fewer than two IDs"},
+		{"top-pair with bad JSON", []string{"top-pair", writeTempFile(t, "ids.json", "[1, 2")}, "parsing"},
+		{"top-pair with non-integer IDs", []string{"top-pair", writeTempFile(t, "ids.json", `["a", "b"]`)}, "parsing"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
